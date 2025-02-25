@@ -15,14 +15,14 @@ def process_initialize2_transaction(data, redis_client):
     try:
         signature = data['transaction']['signatures'][0]
         account_keys = data['transaction']['message']['accountKeys']
-        
+
         # Check raydium_amm_idl.json for the account keys
         # The token address is typically the 19th account (index 18)
         # The liquidity pool address is typically the 3rd account (index 2)
         if len(account_keys) > 18:
             token_address = account_keys[18]
             liquidity_address = account_keys[2]
-            
+
             # Publish to Redis
             event_data = {
                 'tokenAddress': token_address,
@@ -30,7 +30,7 @@ def process_initialize2_transaction(data, redis_client):
                 'signature': signature
             }
             redis_client.publish('migrations', json.dumps(event_data))
-            
+
             print(f"\nSignature: {signature}")
             print(f"Token Address: {token_address}")
             print(f"Liquidity Address: {liquidity_address}")
@@ -38,13 +38,13 @@ def process_initialize2_transaction(data, redis_client):
             print("=" * 50)
         else:
             print(f"\nError: Not enough account keys (found {len(account_keys)})")
-        
+
     except Exception as e:
         print(f"\nError: {str(e)}")
 
 async def listen_for_events():
     # Initialize Redis client
-    redis_client = redis.Redis(host='localhost', port=6379, db=0)
+    redis_client = redis.Redis(host='localhost', port=6381, decode_responses=True)
     while True:
         try:
             async with websockets.connect(WSS_ENDPOINT) as websocket:
@@ -63,7 +63,7 @@ async def listen_for_events():
                         }
                     ]
                 })
-                
+
                 await websocket.send(subscription_message)
                 response = await websocket.recv()
                 print(f"Subscription response: {response}")
@@ -73,7 +73,7 @@ async def listen_for_events():
                     try:
                         response = await asyncio.wait_for(websocket.recv(), timeout=30)
                         data = json.loads(response)
-                        
+
                         if 'method' in data and data['method'] == 'blockNotification':
                             if 'params' in data and 'result' in data['params']:
                                 block_data = data['params']['result']
@@ -82,19 +82,19 @@ async def listen_for_events():
                                     if 'transactions' in block:
                                         for tx in block['transactions']:
                                             logs = tx.get('meta', {}).get('logMessages', [])
-                                            
+
                                             # Check for initialize2 instruction
                                             for log in logs:
                                                 if "Program log: initialize2: InitializeInstruction2" in log:
                                                     print("Found initialize2 instruction!")
                                                     process_initialize2_transaction(tx, redis_client)
                                                     break
-                                        
+
                     except asyncio.TimeoutError:
                         print("\nChecking connection...")
                         print("Connection alive")
                         continue
-                        
+
         except Exception as e:
             print(f"\nConnection error: {str(e)}")
             print("Retrying in 5 seconds...")
