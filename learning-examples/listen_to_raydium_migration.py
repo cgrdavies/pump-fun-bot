@@ -5,11 +5,12 @@ import base64
 from solders.pubkey import Pubkey
 import sys
 import os
+import redis
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from config import WSS_ENDPOINT, PUMP_LIQUIDITY_MIGRATOR
 
-def process_initialize2_transaction(data):
+def process_initialize2_transaction(data, redis_client):
     """Process and decode an initialize2 transaction"""
     try:
         signature = data['transaction']['signatures'][0]
@@ -22,9 +23,18 @@ def process_initialize2_transaction(data):
             token_address = account_keys[18]
             liquidity_address = account_keys[2]
             
+            # Publish to Redis
+            event_data = {
+                'tokenAddress': token_address,
+                'liquidityAddress': liquidity_address,
+                'signature': signature
+            }
+            redis_client.publish('migrations', json.dumps(event_data))
+            
             print(f"\nSignature: {signature}")
             print(f"Token Address: {token_address}")
             print(f"Liquidity Address: {liquidity_address}")
+            print("Published migration event to Redis")
             print("=" * 50)
         else:
             print(f"\nError: Not enough account keys (found {len(account_keys)})")
@@ -33,6 +43,8 @@ def process_initialize2_transaction(data):
         print(f"\nError: {str(e)}")
 
 async def listen_for_events():
+    # Initialize Redis client
+    redis_client = redis.Redis(host='localhost', port=6379, db=0)
     while True:
         try:
             async with websockets.connect(WSS_ENDPOINT) as websocket:
@@ -75,7 +87,7 @@ async def listen_for_events():
                                             for log in logs:
                                                 if "Program log: initialize2: InitializeInstruction2" in log:
                                                     print("Found initialize2 instruction!")
-                                                    process_initialize2_transaction(tx)
+                                                    process_initialize2_transaction(tx, redis_client)
                                                     break
                                         
                     except asyncio.TimeoutError:
